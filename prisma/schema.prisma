@@ -1,0 +1,318 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum ProjectKind {
+  GENERAL
+  SOFTWARE
+}
+
+enum MediaStatus {
+  PENDING
+  READY
+  FAILED
+  DELETED
+}
+
+enum RevisionState {
+  DRAFT
+  PUBLISHED
+  SUPERSEDED
+}
+
+enum PublicationState {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum NavigationPlacement {
+  HEADER
+  FOOTER
+}
+
+enum ContactSubmissionStatus {
+  NEW
+  READ
+  REPLIED
+  ARCHIVED
+}
+
+model Role {
+  id          String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String           @unique
+  description String
+  isSystem    Boolean          @default(false)
+  users       User[]
+  permissions RolePermission[]
+  createdAt   DateTime         @default(now()) @db.Timestamptz(6)
+  updatedAt   DateTime         @updatedAt @db.Timestamptz(6)
+}
+
+model RolePermission {
+  roleId        String @db.Uuid
+  permissionKey String
+  role          Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionKey])
+}
+
+model User {
+  id            String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name          String
+  email         String           @unique @db.Citext
+  passwordHash  String
+  roleId        String           @db.Uuid
+  role          Role             @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  isActive      Boolean          @default(true)
+  lastLoginAt   DateTime?        @db.Timestamptz(6)
+  sessions      RefreshSession[]
+  mediaUploads  MediaAsset[]     @relation("MediaUploadedBy")
+  createdAt     DateTime         @default(now()) @db.Timestamptz(6)
+  updatedAt     DateTime         @updatedAt @db.Timestamptz(6)
+}
+
+model RefreshSession {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId     String    @db.Uuid
+  tokenHash  String    @unique
+  expiresAt  DateTime  @db.Timestamptz(6)
+  revokedAt  DateTime? @db.Timestamptz(6)
+  ipAddress  String?
+  userAgent  String?
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt  DateTime  @default(now()) @db.Timestamptz(6)
+}
+
+model MediaAsset {
+  id               String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storageKey       String      @unique
+  publicUrl        String?
+  mimeType         String
+  byteSize         Int
+  width            Int?
+  height           Int?
+  altText          String?
+  originalFilename String
+  status           MediaStatus @default(PENDING)
+  uploadedById     String?     @db.Uuid
+  uploadedBy       User?       @relation("MediaUploadedBy", fields: [uploadedById], references: [id], onDelete: SetNull)
+  projectMedia     ProjectMedia[]
+  serviceCovers    Service[]   @relation("ServiceCover")
+  teamPhotos       TeamMember[] @relation("TeamPhoto")
+  testimonialAvatars Testimonial[] @relation("TestimonialAvatar")
+  siteLogoFor      SiteSettings? @relation("SiteLogo")
+  siteFaviconFor   SiteSettings? @relation("SiteFavicon")
+  createdAt        DateTime    @default(now()) @db.Timestamptz(6)
+  updatedAt        DateTime    @updatedAt @db.Timestamptz(6)
+}
+
+model SiteSettings {
+  id                 String       @id @default("site")
+  brand              String
+  defaultTitle       String
+  defaultDescription String
+  email              String?
+  phone              String?
+  address            String?
+  mapEmbedUrl        String?
+  logoMediaId        String?      @unique @db.Uuid
+  faviconMediaId     String?      @unique @db.Uuid
+  logoMedia          MediaAsset?  @relation("SiteLogo", fields: [logoMediaId], references: [id], onDelete: SetNull)
+  faviconMedia       MediaAsset?  @relation("SiteFavicon", fields: [faviconMediaId], references: [id], onDelete: SetNull)
+  socialLinks        SocialLink[]
+  createdAt          DateTime     @default(now()) @db.Timestamptz(6)
+  updatedAt          DateTime     @updatedAt @db.Timestamptz(6)
+}
+
+model SocialLink {
+  id          String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  siteId      String       @default("site")
+  platform    String
+  url         String
+  visible     Boolean      @default(true)
+  sortOrder   Int          @default(0)
+  site        SiteSettings @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  createdAt   DateTime     @default(now()) @db.Timestamptz(6)
+  updatedAt   DateTime     @updatedAt @db.Timestamptz(6)
+
+  @@unique([siteId, platform])
+  @@index([siteId, visible, sortOrder])
+}
+
+model NavigationItem {
+  id          String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  placement   NavigationPlacement
+  parentId    String?             @db.Uuid
+  label       String
+  href        String
+  external    Boolean             @default(false)
+  visible     Boolean             @default(true)
+  sortOrder   Int                 @default(0)
+  parent      NavigationItem?     @relation("NavigationHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children    NavigationItem[]    @relation("NavigationHierarchy")
+  createdAt   DateTime            @default(now()) @db.Timestamptz(6)
+  updatedAt   DateTime            @updatedAt @db.Timestamptz(6)
+
+  @@index([placement, parentId, visible, sortOrder])
+}
+
+model HomepageSection {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  sectionKey  String   @unique
+  visible     Boolean  @default(true)
+  content     Json
+  createdAt   DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @db.Timestamptz(6)
+}
+
+model PageSetting {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  pageKey     String   @unique
+  content     Json
+  createdAt   DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @db.Timestamptz(6)
+}
+
+model Project {
+  id          String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  kind        ProjectKind
+  slug        String
+  title       String
+  label       String?
+  description String
+  lead        String?
+  overview    String?
+  challenge   String?
+  approach    String?
+  outcome     String?
+  imageAlt    String
+  tags        String[]
+  previewUrl  String?
+  githubUrl   String?
+  featured    Boolean      @default(false)
+  visible     Boolean      @default(true)
+  publicationState PublicationState @default(DRAFT)
+  sortOrder   Int          @default(0)
+  media       ProjectMedia[]
+  createdAt   DateTime     @default(now()) @db.Timestamptz(6)
+  updatedAt   DateTime     @updatedAt @db.Timestamptz(6)
+
+  @@unique([kind, slug])
+  @@index([kind, publicationState, visible, sortOrder])
+}
+
+model ProjectMedia {
+  id           String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId    String     @db.Uuid
+  mediaAssetId String     @db.Uuid
+  altText      String?
+  sortOrder    Int        @default(0)
+  isCover      Boolean    @default(false)
+  project      Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  mediaAsset   MediaAsset @relation(fields: [mediaAssetId], references: [id], onDelete: Restrict)
+
+  @@unique([projectId, mediaAssetId])
+  @@index([projectId, sortOrder])
+}
+
+model Service {
+  id               String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  slug             String           @unique
+  title            String
+  description      String
+  lead             String?
+  overview         String?
+  challenge        String?
+  approach         String?
+  outcome          String?
+  imageAlt         String
+  tags             String[]
+  coverMediaId     String?          @db.Uuid
+  coverMedia       MediaAsset?      @relation("ServiceCover", fields: [coverMediaId], references: [id], onDelete: SetNull)
+  visible          Boolean          @default(true)
+  publicationState PublicationState @default(DRAFT)
+  sortOrder        Int              @default(0)
+  createdAt        DateTime         @default(now()) @db.Timestamptz(6)
+  updatedAt        DateTime         @updatedAt @db.Timestamptz(6)
+
+  @@index([publicationState, visible, sortOrder])
+}
+
+model TeamMember {
+  id          String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String
+  jobTitle    String
+  bio         String?
+  photoMediaId String?    @db.Uuid
+  photoMedia  MediaAsset? @relation("TeamPhoto", fields: [photoMediaId], references: [id], onDelete: SetNull)
+  visible     Boolean     @default(true)
+  sortOrder   Int         @default(0)
+  createdAt   DateTime    @default(now()) @db.Timestamptz(6)
+  updatedAt   DateTime    @updatedAt @db.Timestamptz(6)
+
+  @@index([visible, sortOrder])
+}
+
+model Testimonial {
+  id            String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  quote         String
+  name          String
+  role          String?
+  company       String?
+  avatarMediaId String?     @db.Uuid
+  avatarMedia   MediaAsset? @relation("TestimonialAvatar", fields: [avatarMediaId], references: [id], onDelete: SetNull)
+  visible       Boolean     @default(true)
+  sortOrder     Int         @default(0)
+  createdAt     DateTime    @default(now()) @db.Timestamptz(6)
+  updatedAt     DateTime    @updatedAt @db.Timestamptz(6)
+
+  @@index([visible, sortOrder])
+}
+
+model ContactSubmission {
+  id         String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name       String
+  email      String                  @db.Citext
+  company    String?
+  message    String
+  status     ContactSubmissionStatus @default(NEW)
+  assignedTo String?                 @db.Uuid
+  createdAt  DateTime                @default(now()) @db.Timestamptz(6)
+  updatedAt  DateTime                @updatedAt @db.Timestamptz(6)
+
+  @@index([status, createdAt])
+}
+
+model ContentRevision {
+  id         String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  entityType String
+  entityId   String        @db.Uuid
+  version    Int
+  state      RevisionState @default(DRAFT)
+  payload    Json
+  createdBy  String?       @db.Uuid
+  createdAt  DateTime      @default(now()) @db.Timestamptz(6)
+  publishedAt DateTime?    @db.Timestamptz(6)
+
+  @@unique([entityType, entityId, version])
+  @@index([entityType, entityId, state])
+}
+
+model AuditEvent {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  actorId       String?  @db.Uuid
+  action        String
+  entityType    String
+  entityId      String?  @db.Uuid
+  metadata      Json?
+  correlationId String?
+  createdAt     DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([entityType, entityId, createdAt])
+}
